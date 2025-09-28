@@ -22,6 +22,8 @@ fn main() {
         hash_object(&args);
     } else if args[1] == "ls-tree" {
         ls_tree(&args);
+    } else if args[1] == "write-tree" {
+        write_tree(&args);
     } else {
         println!("Unknown command");
     }
@@ -135,4 +137,106 @@ fn ls_tree(args: &[String]) {
         }
         println!("{} {} {}", mode, sha_hex, filename);
     }
+}
+
+fn hash_file_object(path: &std::path::Path) -> String {
+    let file_content = fs::read(path).expect("failed to read file");
+
+    let header = format!("blob {}\0", file_content.len());
+
+    let mut store_content = Vec::new();
+    store_content.extend_from_slice(header.as_bytes());
+
+    store_content.extend_from_slice(&file_content);
+
+    // hash
+    let mut hasher = Sha1::new();
+    hasher.update(&store_content);
+
+    let object_hash = hasher.finalize();
+    let object_hex = hex::encode(object_hash);
+
+    // store in .git/objects/
+    let dir = format!(".git/objects/{}", &object_hex[0..2]);
+    fs::create_dir_all(&dir).unwrap();
+
+    let object_path = format!("{}/{}", dir, &object_hex[2..]);
+
+    // compress with zlib
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&store_content).unwrap();
+    let compressed = encoder.finish().unwrap();
+
+    fs::write(&object_path, compressed).expect("failed to write object");
+    object_hex
+}
+
+fn write_tree(_args: &[String]) {
+    let object_hash = write_sub_tree(std::path::Path::new("."));
+    println!("{}", object_hash);
+}
+
+fn write_sub_tree(path: &std::path::Path) -> String {
+    let mut entries = Vec::new();
+
+    for entry in fs::read_dir(path).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+
+        if path.file_name().unwrap() == ".git" {
+            continue;
+        }
+
+        let metadata = fs::metadata(&path).unwrap();
+        let mode = if metadata.is_dir() {
+            "40000"
+        } else {
+            "100644" // regular non-executable file
+        };
+
+        let object_hash = if metadata.is_dir() {
+            write_sub_tree(&path) //recursion
+        } else {
+            hash_file_object(&path)
+        };
+
+        let filename = path.file_name().unwrap().to_str().unwrap().to_string();
+        entries.push((mode.to_string(), object_hash, filename));
+    }
+
+    // Sort entries by filename (git requires this for tree determinism)
+    entries.sort_by(|a, b| a.2.cmp(&b.2));
+
+    // Build raw tree content
+    let mut tree_content = Vec::new();
+    for (mode, object_hash, filename) in entries {
+        tree_content.extend_from_slice(format!("{} {}\0", mode, filename).as_bytes());
+        let sha_bytes = hex::decode(object_hash).unwrap();
+        tree_content.extend_from_slice(&sha_bytes);
+    }
+
+    // Add header
+    let header = format!("tree {}\0", tree_content.len());
+    let mut store_content = Vec::new();
+    store_content.extend_from_slice(header.as_bytes());
+    store_content.extend_from_slice(&tree_content);
+
+    // Hash
+    let mut hasher = Sha1::new();
+    hasher.update(&store_content);
+    let object_hash = hasher.finalize();
+    let object_hex = hex::encode(object_hash);
+
+    // Store in .git/objects/
+    let dir = format!(".git/objects/{}", &object_hex[0..2]);
+    fs::create_dir_all(&dir).unwrap();
+    let object_path = format!("{}/{}", dir, &object_hex[2..]);
+
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&store_content).unwrap();
+    let compressed = encoder.finish().unwrap();
+
+    fs::write(&object_path, compressed).expect("failed to write tree object");
+
+    object_hex
 }

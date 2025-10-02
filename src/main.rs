@@ -29,7 +29,7 @@ fn main() {
     }
 }
 
-fn cat_file(args: &Vec<String>) {
+fn cat_file(args: &[String]) {
     let object_hash = &args[3];
     let object_path = format!(
         ".git/objects/{}/{}",
@@ -49,7 +49,7 @@ fn cat_file(args: &Vec<String>) {
     print!("{}", parts[1]);
 }
 
-fn hash_object(args: &Vec<String>) {
+fn hash_object(args: &[String]) {
     let filename = &args[3];
     let file_content = fs::read(filename).expect("failed to read file");
 

@@ -1,6 +1,6 @@
 [package]
 name = "git-rust"
-version = "0.1.0"
+version = "0.1.1"
 description = "A simple implementation of Git in Rust"
 repository = "https://github.com/arjav0703/git-rust"
 edition = "2021"
